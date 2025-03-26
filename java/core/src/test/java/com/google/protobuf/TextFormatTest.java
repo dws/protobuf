@@ -48,6 +48,7 @@ import java.io.StringReader;
 import java.util.Arrays;
 import java.util.List;
 import java.util.logging.Logger;
+import org.junit.After;
 import org.junit.Test;
 import org.junit.function.ThrowingRunnable;
 import org.junit.runner.RunWith;
@@ -2174,6 +2175,104 @@ public class TextFormatTest {
             .build();
     assertThat(TextFormat.printer().printToString(message))
         .isEqualTo("optional_float: -0.0\noptional_double: -0.0\n");
+  }
+
+  @After
+  public void tearDown() {
+    TextFormat.setEnableSilentMarker(false);
+  }
+
+  @Test
+  public void testPrintsSilentMarkerNonMessage() throws Exception {
+    TextFormat.setEnableSilentMarker(true);
+    TestAllTypes proto = TestAllTypes.newBuilder().addRepeatedInt32(1).build();
+    assertThat(proto.toString()).isEqualTo("repeated_int32: \t 1\n");
+  }
+
+  @Test
+  public void testPrintsSilentMarkerMessageField() throws Exception {
+    TextFormat.setEnableSilentMarker(true);
+    TestAllTypes proto =
+        TestAllTypes.newBuilder()
+            .setOptionalNestedMessage(NestedMessage.newBuilder().setBb(1))
+            .addRepeatedInt32(1)
+            .build();
+    assertThat(proto.toString())
+        .isEqualTo(
+            """
+            optional_nested_message \t {
+              bb: 1
+            }
+            repeated_int32: 1
+            """);
+  }
+
+  @Test
+  public void testPrintsSilentMarkerUnknownField() throws Exception {
+    TextFormat.setEnableSilentMarker(true);
+    UnknownFieldSet unknownFields =
+        UnknownFieldSet.newBuilder()
+            .addField(5, UnknownFieldSet.Field.newBuilder().addVarint(1).build())
+            .build();
+    TestEmptyMessage proto = TestEmptyMessage.newBuilder().setUnknownFields(unknownFields).build();
+    assertThat(proto.toString()).isEqualTo("5: \t 1\n");
+  }
+
+  @Test
+  public void testPrintsSilentMarkerUnknownFieldGroup() throws Exception {
+    TextFormat.setEnableSilentMarker(true);
+    UnknownFieldSet unknownFields =
+        UnknownFieldSet.newBuilder()
+            .addField(
+                5,
+                UnknownFieldSet.Field.newBuilder()
+                    .addGroup(
+                        UnknownFieldSet.newBuilder()
+                            .addField(10, UnknownFieldSet.Field.newBuilder().addVarint(5).build())
+                            .build())
+                    .build())
+            .build();
+    TestEmptyMessage proto = TestEmptyMessage.newBuilder().setUnknownFields(unknownFields).build();
+    assertThat(proto.toString()).isEqualTo("5 \t {\n  10: 5\n}\n");
+  }
+
+  @Test
+  public void testPrintsSilentMarkerAnyField() throws Exception {
+    TextFormat.setEnableSilentMarker(true);
+    Any any =
+        Any.newBuilder()
+            .setTypeUrl("type.googleapis.com/" + TestAllTypes.getDescriptor().getFullName())
+            .setValue(TestAllTypes.newBuilder().setOptionalInt32(1).build().toByteString())
+            .build();
+    assertThat(any.toString())
+        .isEqualTo(
+            """
+            type_url: \t "type.googleapis.com/proto2_unittest.TestAllTypes"
+            value: "\\b\\001"
+            """);
+  }
+
+  @Test
+  public void testPrintsSilentMarkerExtensionField() throws Exception {
+    TextFormat.setEnableSilentMarker(true);
+    TestAllExtensions proto =
+        TestAllExtensions.newBuilder().setExtension(optionalInt32Extension, 1).build();
+    assertThat(proto.toString()).isEqualTo("[proto2_unittest.optional_int32_extension]: \t 1\n");
+  }
+
+  @Test
+  public void testPrintsSilentMarkerMapField() throws Exception {
+    TextFormat.setEnableSilentMarker(true);
+    TestMap proto = TestMap.newBuilder().putInt32ToInt32Field(1, 2).build();
+    assertThat(proto.toString()).isEqualTo("int32_to_int32_field \t {\n  key: 1\n  value: 2\n}\n");
+  }
+
+  @Test
+  public void testPrintsSilentMarkerPrintToStringShortDebugStringUnchanged() throws Exception {
+    TextFormat.setEnableSilentMarker(true);
+    TestAllTypes proto = TestAllTypes.newBuilder().setOptionalInt32(1).build();
+    assertThat(TextFormat.printer().printToString(proto)).isEqualTo("optional_int32: 1\n");
+    assertThat(TextFormat.printer().shortDebugString(proto)).isEqualTo("optional_int32: 1");
   }
 
   private TestRecursiveMessage makeRecursiveMessage(int depth) {
