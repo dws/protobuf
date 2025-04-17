@@ -32,14 +32,16 @@ pub enum DecodeStatus {
 }
 // LINT.ThenChange()
 
+// LINT.IfChange(decode_option)
 #[repr(i32)]
 #[allow(dead_code)]
-enum DecodeOption {
+pub enum DecodeOption {
     AliasString = 1,
     CheckRequired = 2,
     ExperimentalAllowUnlinked = 4,
     AlwaysValidateUtf8 = 8,
 }
+// LINT.ThenChange()
 
 /// If Err, then EncodeStatus != Ok.
 ///
@@ -60,7 +62,7 @@ pub unsafe fn encode(
 
     if status == EncodeStatus::Ok {
         assert!(!buf.is_null()); // EncodeStatus Ok should never return NULL data, even for len=0.
-        // SAFETY: upb guarantees that `buf` is valid to read for `len`.
+                                 // SAFETY: upb guarantees that `buf` is valid to read for `len`.
         Ok(unsafe { &*core::ptr::slice_from_raw_parts(buf, len) }.to_vec())
     } else {
         Err(status)
@@ -69,6 +71,9 @@ pub unsafe fn encode(
 
 /// Decodes into the provided message (merge semantics). If Err, then
 /// DecodeStatus != Ok.
+///
+/// Equivalent to `decode_with_options()` with the
+/// `DecodeOption::CheckRequired` option set.
 ///
 /// # Safety
 /// - `msg` must be mutable.
@@ -79,16 +84,44 @@ pub unsafe fn decode(
     mini_table: *const upb_MiniTable,
     arena: &Arena,
 ) -> Result<(), DecodeStatus> {
+    // SAFETY:
+    // - `msg` is mutable and is associated with `mini_table`.
+    // - DecodeOption::CheckRequired is a valid DecodeOption.
+    unsafe { decode_with_options(buf, msg, mini_table, arena, DecodeOption::CheckRequired as i32) }
+}
+
+/// Decodes into the provided message (merge semantics). If Err, then
+/// DecodeStatus != Ok.
+///
+/// # Safety
+/// - `msg` must be mutable.
+/// - `msg` must be associated with `mini_table`.
+/// - `decode_options_bitmask` is a bitmask of DecodeOption enum values.
+pub unsafe fn decode_with_options(
+    buf: &[u8],
+    msg: RawMessage,
+    mini_table: *const upb_MiniTable,
+    arena: &Arena,
+    decode_options_bitmask: i32,
+) -> Result<(), DecodeStatus> {
     let len = buf.len();
     let buf = buf.as_ptr();
-    let options = DecodeOption::CheckRequired as i32;
 
     // SAFETY:
     // - `mini_table` is the one associated with `msg`
     // - `buf` is legally readable for at least `buf_size` bytes.
     // - `extreg` is null.
-    let status =
-        unsafe { upb_Decode(buf, len, msg, mini_table, core::ptr::null(), options, arena.raw()) };
+    let status = unsafe {
+        upb_Decode(
+            buf,
+            len,
+            msg,
+            mini_table,
+            core::ptr::null(),
+            decode_options_bitmask,
+            arena.raw(),
+        )
+    };
     match status {
         DecodeStatus::Ok => Ok(()),
         _ => Err(status),
