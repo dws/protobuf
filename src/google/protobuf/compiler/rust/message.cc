@@ -111,10 +111,30 @@ void MessageMutClear(Context& ctx, const Descriptor& msg) {
   }
 }
 
+struct ClearAndParseDefault {
+  static constexpr absl::string_view kCppParseFunctionName =
+      "proto2_rust_Message_parse";
+  static constexpr absl::string_view kUpbDecodeOptions =
+      "$pbr$::wire::DecodeOption::CheckRequired as i32";
+};
+
+struct ClearAndParseDontEnforceRequired {
+  static constexpr absl::string_view kCppParseFunctionName =
+      "proto2_rust_Message_parse_dont_enforce_required";
+  static constexpr absl::string_view kUpbDecodeOptions = "0i32";
+};
+
+// Generates clear_and_parse() and clear_and_parse_dont_enforce_required()
+// functions. Kind must be a type with the following static members:
+// - kCppParseFunctionName: the name of the C++ kernel function to call to
+//   parse the message.
+// - kUpbDecodeOptions: the options to pass to the upb kernel to decode the
+//   message.
+template <class Kind>
 void MessageMutClearAndParse(Context& ctx, const Descriptor& msg) {
   switch (ctx.opts().kernel) {
     case Kernel::kCpp:
-      ctx.Emit({},
+      ctx.Emit({{"ParseFunctionName", Kind::kCppParseFunctionName}},
                R"rs(
           let success = unsafe {
             // SAFETY: `data.as_ptr()` is valid to read for `data.len()`.
@@ -123,7 +143,7 @@ void MessageMutClearAndParse(Context& ctx, const Descriptor& msg) {
               data.len(),
             );
 
-            $pbr$::proto2_rust_Message_parse(self.raw_msg(), data)
+            $pbr$::$ParseFunctionName$(self.raw_msg(), data)
           };
           success.then_some(()).ok_or($pb$::ParseError)
         )rs");
@@ -131,6 +151,7 @@ void MessageMutClearAndParse(Context& ctx, const Descriptor& msg) {
 
     case Kernel::kUpb:
       ctx.Emit(
+          {{"DecodeOptions", [&ctx] { ctx.Emit(Kind::kUpbDecodeOptions); }}},
           R"rs(
         $pb$::Clear::clear(self);
 
@@ -139,11 +160,12 @@ void MessageMutClearAndParse(Context& ctx, const Descriptor& msg) {
         // - `mini_table` is the one used to construct `msg.raw_msg()`
         // - `msg.arena().raw()` is held for the same lifetime as `msg`.
         let status = unsafe {
-          $pbr$::wire::decode(
+          $pbr$::wire::decode_with_options(
               data,
               self.raw_msg(),
               <Self as $pbr$::AssociatedMiniTable>::mini_table(),
-              self.arena())
+              self.arena(),
+              $DecodeOptions$)
         };
         match status {
           Ok(_) => Ok(()),
@@ -700,7 +722,12 @@ void GenerateRs(Context& ctx, const Descriptor& msg) {
           {"Msg::serialize", [&] { MessageSerialize(ctx, msg); }},
           {"MsgMut::clear", [&] { MessageMutClear(ctx, msg); }},
           {"MsgMut::clear_and_parse",
-           [&] { MessageMutClearAndParse(ctx, msg); }},
+           [&] { MessageMutClearAndParse<ClearAndParseDefault>(ctx, msg); }},
+          {"MsgMut::clear_and_parse_dont_enforce_required",
+           [&] {
+             MessageMutClearAndParse<ClearAndParseDontEnforceRequired>(ctx,
+                                                                       msg);
+           }},
           {"Msg::drop", [&] { MessageDrop(ctx, msg); }},
           {"Msg::debug", [&] { MessageDebug(ctx, msg); }},
           {"MsgMut::take_copy_merge_from",
@@ -830,6 +857,10 @@ void GenerateRs(Context& ctx, const Descriptor& msg) {
           fn parse(serialized: &[u8]) -> $Result$<Self, $pb$::ParseError> {
             Self::parse(serialized)
           }
+
+          fn parse_dont_enforce_required(serialized: &[u8]) -> $Result$<Self, $pb$::ParseError> {
+            Self::parse_dont_enforce_required(serialized)
+          }
         }
 
         impl $std$::fmt::Debug for $Msg$ {
@@ -876,6 +907,11 @@ void GenerateRs(Context& ctx, const Descriptor& msg) {
           fn clear_and_parse(&mut self, data: &[u8]) -> $Result$<(), $pb$::ParseError> {
             let mut m = self.as_mut();
             $pb$::ClearAndParse::clear_and_parse(&mut m, data)
+          }
+
+          fn clear_and_parse_dont_enforce_required(&mut self, data: &[u8]) -> $Result$<(), $pb$::ParseError> {
+            let mut m = self.as_mut();
+            $pb$::ClearAndParse::clear_and_parse_dont_enforce_required(&mut m, data)
           }
         }
 
@@ -1014,6 +1050,10 @@ void GenerateRs(Context& ctx, const Descriptor& msg) {
           fn clear_and_parse(&mut self, data: &[u8]) -> $Result$<(), $pb$::ParseError> {
             $MsgMut::clear_and_parse$
           }
+
+          fn clear_and_parse_dont_enforce_required(&mut self, data: &[u8]) -> $Result$<(), $pb$::ParseError> {
+            $MsgMut::clear_and_parse_dont_enforce_required$
+          }
         }
 
         $MsgMut::take_copy_merge_from$
@@ -1114,6 +1154,11 @@ void GenerateRs(Context& ctx, const Descriptor& msg) {
           pub fn parse(data: &[u8]) -> $Result$<Self, $pb$::ParseError> {
             let mut msg = Self::new();
             $pb$::ClearAndParse::clear_and_parse(&mut msg, data).map(|_| msg)
+          }
+
+          pub fn parse_dont_enforce_required(data: &[u8]) -> $Result$<Self, $pb$::ParseError> {
+            let mut msg = Self::new();
+            $pb$::ClearAndParse::clear_and_parse_dont_enforce_required(&mut msg, data).map(|_| msg)
           }
 
           pub fn as_view(&self) -> $Msg$View {
