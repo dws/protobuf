@@ -356,6 +356,35 @@ public final class FieldMaskUtil {
     }
   }
 
+  /** Options to customize trimming behavior. */
+  public static final class TrimOptions {
+    private boolean retainPrimitiveFieldUnsetState = false;
+
+    /**
+     * Whether to replace primitive (non-repeated and non-message) fields in destination message
+     * fields with the source primitive fields (i.e., clear destination field if source field is not
+     * set).
+     */
+    public boolean retainPrimitiveFieldUnsetState() {
+      return retainPrimitiveFieldUnsetState;
+    }
+
+    /**
+     * Specify whether the unset state of primitive fields should be retained when trimming.
+     * Defaults to false.
+     *
+     * <p>If true, unset primitive fields indicated by the field mask will remain unset.
+     *
+     * <p>If false, unset primitive fields indicated by the field mask will be set to their default
+     * value.
+     */
+    @CanIgnoreReturnValue
+    public TrimOptions setRetainPrimitiveFieldUnsetState(boolean value) {
+      retainPrimitiveFieldUnsetState = value;
+      return this;
+    }
+  }
+
   /**
    * Merges fields specified by a FieldMask from one message to another with the specified merge
    * options. The destination will remain unchanged if an empty FieldMask is provided.
@@ -373,12 +402,27 @@ public final class FieldMaskUtil {
   }
 
   /**
-   * Returns the result of keeping only the masked fields of the given proto.
+   * Returns the result of keeping only the masked fields of the given proto with the specified trim
+   * options.
    */
   @SuppressWarnings("unchecked")
-  public static <P extends Message> P trim(FieldMask mask, P source) {
-   Message.Builder destination = source.newBuilderForType();
-    merge(mask, source, destination);
+  public static <P extends Message> P trim(FieldMask mask, P source, TrimOptions options) {
+    Message.Builder destination = source.newBuilderForType();
+    merge(
+        mask,
+        source,
+        destination,
+        new MergeOptions().setReplacePrimitiveFields(options.retainPrimitiveFieldUnsetState()));
     return (P) destination.build();
+  }
+
+  /**
+   * Returns the result of keeping only the masked fields of the given proto.
+   *
+   * <p>This method is equivalent to {@link #trim(FieldMask, Message, TrimOptions)} with default
+   * {@link TrimOptions}.
+   */
+  public static <P extends Message> P trim(FieldMask mask, P source) {
+    return trim(mask, source, new TrimOptions());
   }
 }
